@@ -6,7 +6,8 @@
 // CONFIGURATION
 // ==========================================
 
-#define NUM_CANDIDATES 3
+#define NUM_CANDIDATES 4
+String candidateNames[NUM_CANDIDATES] = {"BJP", "CONGRESS", "AAP", "TMC"};
 
 // --- Officer Control Button ---
 // Connect this button to Pin 10. This is the Officer's "YES" button.
@@ -27,15 +28,20 @@ Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 
 // --- Voter Database & Security ---
 const int NUM_VOTERS = 5;
-String validPINs[NUM_VOTERS] = {"1111", "2222", "3333", "4444", "5555"};
+String validPINs[NUM_VOTERS] = {"1010", "2020", "3030", "4040", "5050"};
+
+// Officer initialization PIN (To unlock the machine in the morning)
+String officerPIN = "0000"; 
+
+// Admin PIN (To check the final results at the end of the day)
 String adminPIN = "A000A";
 
 const int VOTE_START_ADDR = 0; 
 const int FLAG_START_ADDR = 100; 
 
-int voteCounts[NUM_CANDIDATES] = {0, 0, 0};
-enum State { STATE_ENTER_PIN, STATE_OFFICER_AUTH, STATE_VOTING, STATE_ADMIN };
-State currentState = STATE_ENTER_PIN;
+int voteCounts[NUM_CANDIDATES] = {0, 0, 0, 0};
+enum State { STATE_INIT_LOCK, STATE_ENTER_PIN, STATE_OFFICER_AUTH, STATE_VOTING, STATE_ADMIN };
+State currentState = STATE_INIT_LOCK;
 String inputPIN = "";
 int currentVoterIndex = -1;
 
@@ -55,13 +61,15 @@ void setup() {
   }
   wdt_enable(WDTO_2S);
   delay(1000);
-  resetToPinEntry();
+  resetToInitLock();
 }
 
 void loop() {
   wdt_reset(); 
   
-  if(currentState == STATE_ENTER_PIN) {
+  if (currentState == STATE_INIT_LOCK) {
+    handleInitLock();
+  } else if (currentState == STATE_ENTER_PIN) {
     handlePinEntry();
   } else if (currentState == STATE_OFFICER_AUTH) {
     handleOfficerAuth();
@@ -72,12 +80,52 @@ void loop() {
   }
 }
 
+void resetToInitLock() {
+  currentState = STATE_INIT_LOCK;
+  inputPIN = "";
+  Serial.println("\n---------------------------");
+  Serial.println("SYSTEM LOCKED.");
+  Serial.println("Officer, please enter Initialization PIN to start the election:");
+}
+
 void resetToPinEntry() {
   currentState = STATE_ENTER_PIN;
   inputPIN = "";
   currentVoterIndex = -1;
   Serial.println("\n---------------------------");
   Serial.println("Waiting for Voter... Enter PIN on the Keypad:");
+}
+
+void handleInitLock() {
+  char key = keypad.getKey();
+  
+  if (key) {
+    if (key == '*' || key == '#') {
+       inputPIN = "";
+       Serial.println("\nPIN Cleared. Try again.");
+       return;
+    }
+    
+    inputPIN += key;
+    Serial.print("*"); // Hide Officer PIN for security
+    
+    if(inputPIN.length() == 4) {
+      Serial.println();
+      delay(500);
+      if(inputPIN == officerPIN) {
+        Serial.println("ELECTION STARTED!");
+        delay(1000);
+        resetToPinEntry();
+      } else {
+        Serial.println("ACCESS DENIED. Incorrect Officer PIN.");
+        inputPIN = "";
+      }
+    }
+    
+    if(inputPIN.length() >= 5) {
+      inputPIN = "";
+    }
+  }
 }
 
 void handlePinEntry() {
@@ -146,9 +194,9 @@ void handleOfficerAuth() {
     Serial.println("\n[OFFICER] Access GRANTED via Push Button.");
     currentState = STATE_VOTING;
     Serial.println("\n--- BALLOT UNLOCKED ---");
-    Serial.println("Press 1 for Candidate A");
-    Serial.println("Press 2 for Candidate B");
-    Serial.println("Press 3 for Candidate C");
+    for(int i=0; i<NUM_CANDIDATES; i++) {
+      Serial.print("Press "); Serial.print(i+1); Serial.print(" for "); Serial.println(candidateNames[i]);
+    }
     delay(500); // Debounce
     return;
   }
@@ -173,6 +221,7 @@ void handleVoting() {
     if (key == '1') candidateIdx = 0;
     else if (key == '2') candidateIdx = 1;
     else if (key == '3') candidateIdx = 2;
+    else if (key == '4') candidateIdx = 3;
     
     if (candidateIdx != -1) {
       voteCounts[candidateIdx]++;
@@ -181,21 +230,22 @@ void handleVoting() {
       EEPROM.write(FLAG_START_ADDR + currentVoterIndex, 1);
       
       Serial.println("\n*** VOTE CAST SUCCESSFULLY ***");
+      Serial.print("You voted for: "); Serial.println(candidateNames[candidateIdx]);
       Serial.println("Thank You.");
       
       delay(2000);
       resetToPinEntry();
     } else {
-      Serial.println("Invalid Selection! Press 1, 2, or 3 on the keypad.");
+      Serial.println("Invalid Selection! Press 1, 2, 3, or 4 on the keypad.");
     }
   }
 }
 
 void displayResults() {
   Serial.println("\n--- ELECTION RESULTS ---");
-  Serial.print("Candidate 1: "); Serial.println(voteCounts[0]);
-  Serial.print("Candidate 2: "); Serial.println(voteCounts[1]);
-  Serial.print("Candidate 3: "); Serial.println(voteCounts[2]);
+  for(int i=0; i<NUM_CANDIDATES; i++) {
+    Serial.print(candidateNames[i]); Serial.print(": "); Serial.println(voteCounts[i]);
+  }
   Serial.println("------------------------");
   Serial.println("Press '#' to exit Admin Mode.");
   Serial.println("Press '*' to RESET all votes to zero.");
