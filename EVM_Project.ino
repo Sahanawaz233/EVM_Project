@@ -47,7 +47,7 @@ const int FLAG_START_ADDR = 100;
 
 // EEPROM Auto-Format Magic Signature
 const int MAGIC_ADDR = 200;
-const byte MAGIC_VAL = 0xA5; 
+const byte MAGIC_VAL = 0xB2; 
 
 int voteCounts[NUM_CANDIDATES] = {0, 0, 0, 0, 0};
 enum State { STATE_INIT_LOCK, STATE_ENTER_PIN, STATE_OFFICER_AUTH, STATE_VOTING, STATE_FRAUD_LOCKOUT, STATE_ELECTION_CLOSED, STATE_WIPE_CONFIRM };
@@ -113,7 +113,7 @@ void resetToInitLock() {
   inputPIN = "";
   Serial.println(F("\n---------------------------"));
   Serial.println(F("SYSTEM LOCKED."));
-  Serial.println(F("Officer, please enter Initialization PIN (0000) to allow the next voter:"));
+  Serial.println(F("Officer, please enter Initialization PIN to allow the next voter:"));
 }
 
 void resetToPinEntry() {
@@ -130,7 +130,7 @@ void resetToFraudLockout() {
   Serial.println(F("\n---------------------------"));
   Serial.println(F("!!! SECURITY ALERT !!!"));
   Serial.println(F("Multiple Vote Attempt Detected!"));
-  Serial.println(F("System Locked. Officer must enter Initialization PIN (0000) to resume:"));
+  Serial.println(F("System Locked. Officer must enter Initialization PIN to resume:"));
 }
 
 void closeElection() {
