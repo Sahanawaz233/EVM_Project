@@ -113,7 +113,7 @@ void resetToInitLock() {
   inputPIN = "";
   Serial.println(F("\n---------------------------"));
   Serial.println(F("SYSTEM LOCKED."));
-  Serial.println(F("Officer, please enter Initialization PIN to allow the next voter:"));
+  Serial.println(F("Officer, please enter Initialization PIN to unlock the machine:"));
 }
 
 void resetToPinEntry() {
@@ -167,7 +167,8 @@ void handleInitLock() {
       } else if (inputPIN == closePIN) {
         closeElection();
       } else {
-        Serial.println(F("ACCESS DENIED. Incorrect PIN."));
+        Serial.println(F("\nACCESS DENIED. Incorrect PIN."));
+        Serial.println(F("Please enter the correct PIN to unlock the machine:"));
       }
       inputPIN = ""; // Strictly clear buffer regardless
     }
@@ -198,7 +199,8 @@ void handleFraudLockout() {
       } else if (inputPIN == closePIN) {
         closeElection();
       } else {
-        Serial.println(F("ACCESS DENIED. Incorrect PIN."));
+        Serial.println(F("\nACCESS DENIED. Incorrect PIN."));
+        Serial.println(F("Please enter the correct PIN to resume the election:"));
       }
       inputPIN = ""; // Strictly clear buffer regardless
     }
@@ -261,7 +263,7 @@ void handlePinEntry() {
           Serial.println(F("\n[OFFICER CHECK] Voter Authenticated."));
           Serial.println(F("Physical verification is going on..."));
           Serial.println(F("-> Press Physical Push Button for YES"));
-          Serial.println(F("-> Type 'CCCC' on Keypad for NO"));
+          Serial.println(F("-> Type Reject PIN on Keypad for NO"));
         }
       }
       inputPIN = ""; // Strictly clear buffer
