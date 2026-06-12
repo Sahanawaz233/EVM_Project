@@ -8,6 +8,10 @@
 
 #define NUM_CANDIDATES 3
 
+// --- Confirm Vote Button ---
+// Connect this single button to Pin 10
+const int confirmButtonPin = 10; 
+
 // --- 4x4 Matrix Keypad ---
 const byte ROWS = 4;
 const byte COLS = 4;
@@ -17,7 +21,7 @@ char keys[ROWS][COLS] = {
   {'7','8','9','C'},
   {'*','0','#','D'}
 };
-// Connected exactly as described in Step 3
+// Connected to D9 down to D2
 byte rowPins[ROWS] = {9, 8, 7, 6}; 
 byte colPins[COLS] = {5, 4, 3, 2}; 
 Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
@@ -32,14 +36,17 @@ const int VOTE_START_ADDR = 0;
 const int FLAG_START_ADDR = 100; 
 
 int voteCounts[NUM_CANDIDATES] = {0, 0, 0};
-enum State { STATE_ENTER_PIN, STATE_VOTING, STATE_ADMIN };
+enum State { STATE_ENTER_PIN, STATE_SELECT_CANDIDATE, STATE_CONFIRM_VOTE, STATE_ADMIN };
 State currentState = STATE_ENTER_PIN;
 String inputPIN = "";
 int currentVoterIndex = -1;
+int selectedCandidate = -1;
 
 void setup() {
-  // Start the laptop display
   Serial.begin(9600);
+  
+  // Set up the single confirm button
+  pinMode(confirmButtonPin, INPUT); 
   
   Serial.println("\n\n===========================");
   Serial.println("System Booting..");
@@ -64,8 +71,10 @@ void loop() {
   
   if(currentState == STATE_ENTER_PIN) {
     handlePinEntry();
-  } else if (currentState == STATE_VOTING) {
-    handleVoting();
+  } else if (currentState == STATE_SELECT_CANDIDATE) {
+    handleCandidateSelection();
+  } else if (currentState == STATE_CONFIRM_VOTE) {
+    handleConfirmVote();
   } else if (currentState == STATE_ADMIN) {
     handleAdmin();
   }
@@ -75,6 +84,7 @@ void resetToPinEntry() {
   currentState = STATE_ENTER_PIN;
   inputPIN = "";
   currentVoterIndex = -1;
+  selectedCandidate = -1;
   Serial.println("\n---------------------------");
   Serial.println("Enter Voter PIN on the Keypad:");
 }
@@ -128,7 +138,7 @@ void handlePinEntry() {
           resetToPinEntry();
         } else {
           currentVoterIndex = voterIdx;
-          currentState = STATE_VOTING;
+          currentState = STATE_SELECT_CANDIDATE;
           Serial.println("Access Granted!");
           delay(1000);
           Serial.println("\nSelect Candidate by pressing Keypad Button 1, 2, or 3...");
@@ -143,32 +153,47 @@ void handlePinEntry() {
   }
 }
 
-void handleVoting() {
-  // Use the keypad to vote instead of physical buttons!
+void handleCandidateSelection() {
   char key = keypad.getKey();
   
   if (key) {
-    int candidateIdx = -1;
+    if (key == '1') selectedCandidate = 0;
+    else if (key == '2') selectedCandidate = 1;
+    else if (key == '3') selectedCandidate = 2;
+    else {
+      Serial.println("Invalid Candidate! Press 1, 2, or 3 on the keypad.");
+      return;
+    }
     
-    if (key == '1') candidateIdx = 0;
-    else if (key == '2') candidateIdx = 1;
-    else if (key == '3') candidateIdx = 2;
-    
-    if (candidateIdx != -1) {
+    Serial.print("\n>>> You selected Candidate ");
+    Serial.println(selectedCandidate + 1);
+    Serial.println(">>> Press the PHYSICAL PUSH BUTTON to confirm and cast your vote!");
+    currentState = STATE_CONFIRM_VOTE;
+  }
+}
+
+void handleConfirmVote() {
+  static unsigned long lastDebounceTime = 0;
+  unsigned long debounceDelay = 200; 
+  
+  int reading = digitalRead(confirmButtonPin);
+  
+  if (reading == HIGH) { 
+    if ((millis() - lastDebounceTime) > debounceDelay) {
+      
       // Save vote to permanent EEPROM
-      voteCounts[candidateIdx]++;
-      EEPROM.put(VOTE_START_ADDR + (candidateIdx * sizeof(int)), voteCounts[candidateIdx]); 
+      voteCounts[selectedCandidate]++;
+      EEPROM.put(VOTE_START_ADDR + (selectedCandidate * sizeof(int)), voteCounts[selectedCandidate]); 
       
       // Mark user as voted permanently
       EEPROM.write(FLAG_START_ADDR + currentVoterIndex, 1);
       
-      Serial.println("\nVote Cast Successfully!");
+      Serial.println("\n*** VOTE CAST SUCCESSFULLY ***");
       Serial.println("Thank You.");
       
+      lastDebounceTime = millis();
       delay(2000);
       resetToPinEntry();
-    } else {
-      Serial.println("Invalid Candidate! Press 1, 2, or 3 on the keypad.");
     }
   }
 }
