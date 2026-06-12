@@ -40,7 +40,7 @@ const int VOTE_START_ADDR = 0;
 const int FLAG_START_ADDR = 100; 
 
 int voteCounts[NUM_CANDIDATES] = {0, 0, 0, 0};
-enum State { STATE_INIT_LOCK, STATE_ENTER_PIN, STATE_OFFICER_AUTH, STATE_VOTING, STATE_ADMIN };
+enum State { STATE_INIT_LOCK, STATE_ENTER_PIN, STATE_OFFICER_AUTH, STATE_VOTING, STATE_ADMIN, STATE_FRAUD_LOCKOUT };
 State currentState = STATE_INIT_LOCK;
 String inputPIN = "";
 int currentVoterIndex = -1;
@@ -77,6 +77,8 @@ void loop() {
     handleVoting();
   } else if (currentState == STATE_ADMIN) {
     handleAdmin();
+  } else if (currentState == STATE_FRAUD_LOCKOUT) {
+    handleFraudLockout();
   }
 }
 
@@ -94,6 +96,15 @@ void resetToPinEntry() {
   currentVoterIndex = -1;
   Serial.println("\n---------------------------");
   Serial.println("Waiting for Voter... Enter PIN on the Keypad:");
+}
+
+void resetToFraudLockout() {
+  currentState = STATE_FRAUD_LOCKOUT;
+  inputPIN = "";
+  Serial.println("\n---------------------------");
+  Serial.println("!!! SECURITY ALERT !!!");
+  Serial.println("Multiple Vote Attempt Detected!");
+  Serial.println("System Locked. Officer must enter Initialization PIN (0000) to resume:");
 }
 
 void handleInitLock() {
@@ -114,6 +125,38 @@ void handleInitLock() {
       delay(500);
       if(inputPIN == officerPIN) {
         Serial.println("ELECTION STARTED!");
+        delay(1000);
+        resetToPinEntry();
+      } else {
+        Serial.println("ACCESS DENIED. Incorrect Officer PIN.");
+        inputPIN = "";
+      }
+    }
+    
+    if(inputPIN.length() >= 5) {
+      inputPIN = "";
+    }
+  }
+}
+
+void handleFraudLockout() {
+  char key = keypad.getKey();
+  
+  if (key) {
+    if (key == '*' || key == '#') {
+       inputPIN = "";
+       Serial.println("\nPIN Cleared. Try again.");
+       return;
+    }
+    
+    inputPIN += key;
+    Serial.print("*"); // Hide Officer PIN for security
+    
+    if(inputPIN.length() == 4) {
+      Serial.println();
+      delay(500);
+      if(inputPIN == officerPIN) {
+        Serial.println("System Unlocked! Resuming Election...");
         delay(1000);
         resetToPinEntry();
       } else {
@@ -169,8 +212,8 @@ void handlePinEntry() {
         byte hasVoted = EEPROM.read(FLAG_START_ADDR + voterIdx);
         if(hasVoted == 1) {
           Serial.println("Error: Already Voted!");
-          delay(2000);
-          resetToPinEntry();
+          delay(1000);
+          resetToFraudLockout(); // Trigger the security lockdown!
         } else {
           currentVoterIndex = voterIdx;
           currentState = STATE_OFFICER_AUTH;
