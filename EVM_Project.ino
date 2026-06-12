@@ -8,9 +8,9 @@
 
 #define NUM_CANDIDATES 3
 
-// --- Confirm Vote Button ---
-// Connect this single button to Pin 10
-const int confirmButtonPin = 10; 
+// --- Officer Control Button ---
+// Connect this button to Pin 10. This is the Officer's "YES" button.
+const int officerButtonPin = 10; 
 
 // --- 4x4 Matrix Keypad ---
 const byte ROWS = 4;
@@ -21,7 +21,6 @@ char keys[ROWS][COLS] = {
   {'7','8','9','C'},
   {'*','0','#','D'}
 };
-// Connected to D9 down to D2
 byte rowPins[ROWS] = {9, 8, 7, 6}; 
 byte colPins[COLS] = {5, 4, 3, 2}; 
 Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
@@ -31,27 +30,22 @@ const int NUM_VOTERS = 5;
 String validPINs[NUM_VOTERS] = {"1111", "2222", "3333", "4444", "5555"};
 String adminPIN = "A000A";
 
-// Memory Locations for Data Integrity
 const int VOTE_START_ADDR = 0; 
 const int FLAG_START_ADDR = 100; 
 
 int voteCounts[NUM_CANDIDATES] = {0, 0, 0};
-enum State { STATE_ENTER_PIN, STATE_SELECT_CANDIDATE, STATE_CONFIRM_VOTE, STATE_ADMIN };
+enum State { STATE_ENTER_PIN, STATE_OFFICER_AUTH, STATE_VOTING, STATE_ADMIN };
 State currentState = STATE_ENTER_PIN;
 String inputPIN = "";
 int currentVoterIndex = -1;
-int selectedCandidate = -1;
 
 void setup() {
   Serial.begin(9600);
-  
-  // Set up the single confirm button
-  pinMode(confirmButtonPin, INPUT); 
+  pinMode(officerButtonPin, INPUT); 
   
   Serial.println("\n\n===========================");
   Serial.println("System Booting..");
   
-  // Fetch safe data from EEPROM memory
   for(int i=0; i<NUM_CANDIDATES; i++) {
     EEPROM.get(VOTE_START_ADDR + (i * sizeof(int)), voteCounts[i]);
     if(voteCounts[i] < 0 || voteCounts[i] > 1000) { 
@@ -59,8 +53,6 @@ void setup() {
       EEPROM.put(VOTE_START_ADDR + (i * sizeof(int)), voteCounts[i]);
     }
   }
-  
-  // Enable crash-protection Watchdog Timer
   wdt_enable(WDTO_2S);
   delay(1000);
   resetToPinEntry();
@@ -71,10 +63,10 @@ void loop() {
   
   if(currentState == STATE_ENTER_PIN) {
     handlePinEntry();
-  } else if (currentState == STATE_SELECT_CANDIDATE) {
-    handleCandidateSelection();
-  } else if (currentState == STATE_CONFIRM_VOTE) {
-    handleConfirmVote();
+  } else if (currentState == STATE_OFFICER_AUTH) {
+    handleOfficerAuth();
+  } else if (currentState == STATE_VOTING) {
+    handleVoting();
   } else if (currentState == STATE_ADMIN) {
     handleAdmin();
   }
@@ -84,16 +76,14 @@ void resetToPinEntry() {
   currentState = STATE_ENTER_PIN;
   inputPIN = "";
   currentVoterIndex = -1;
-  selectedCandidate = -1;
   Serial.println("\n---------------------------");
-  Serial.println("Enter Voter PIN on the Keypad:");
+  Serial.println("Waiting for Voter... Enter PIN on the Keypad:");
 }
 
 void handlePinEntry() {
   char key = keypad.getKey();
   
   if (key) {
-    // Clear mistakes
     if (key == '*' || key == '#') {
        inputPIN = "";
        Serial.println("\nPIN Cleared. Try again.");
@@ -103,7 +93,6 @@ void handlePinEntry() {
     inputPIN += key;
     Serial.print(key); 
     
-    // Check for Admin Mode
     if(inputPIN == adminPIN) {
       currentState = STATE_ADMIN;
       Serial.println("\n\n*** ADMIN MODE ***");
@@ -112,7 +101,6 @@ void handlePinEntry() {
       return;
     }
     
-    // Process the 4-digit PIN
     if(inputPIN.length() == 4) {
       Serial.println(); 
       delay(500); 
@@ -130,7 +118,6 @@ void handlePinEntry() {
         delay(2000);
         resetToPinEntry();
       } else {
-        // Check if already voted
         byte hasVoted = EEPROM.read(FLAG_START_ADDR + voterIdx);
         if(hasVoted == 1) {
           Serial.println("Error: Already Voted!");
@@ -138,10 +125,10 @@ void handlePinEntry() {
           resetToPinEntry();
         } else {
           currentVoterIndex = voterIdx;
-          currentState = STATE_SELECT_CANDIDATE;
-          Serial.println("Access Granted!");
-          delay(1000);
-          Serial.println("\nSelect Candidate by pressing Keypad Button 1, 2, or 3...");
+          currentState = STATE_OFFICER_AUTH;
+          Serial.println("\n[OFFICER CHECK] Voter Authenticated.");
+          Serial.println("-> To AUTHORIZE: Press the Physical Push Button (YES).");
+          Serial.println("-> To REJECT: Type 'N' on this laptop keyboard and press Enter (NO).");
         }
       }
     }
@@ -153,47 +140,53 @@ void handlePinEntry() {
   }
 }
 
-void handleCandidateSelection() {
-  char key = keypad.getKey();
+void handleOfficerAuth() {
+  // Check physical push button for YES
+  if (digitalRead(officerButtonPin) == HIGH) {
+    Serial.println("\n[OFFICER] Access GRANTED via Push Button.");
+    currentState = STATE_VOTING;
+    Serial.println("\n--- BALLOT UNLOCKED ---");
+    Serial.println("Press 1 for Candidate A");
+    Serial.println("Press 2 for Candidate B");
+    Serial.println("Press 3 for Candidate C");
+    delay(500); // Debounce
+    return;
+  }
   
-  if (key) {
-    if (key == '1') selectedCandidate = 0;
-    else if (key == '2') selectedCandidate = 1;
-    else if (key == '3') selectedCandidate = 2;
-    else {
-      Serial.println("Invalid Candidate! Press 1, 2, or 3 on the keypad.");
-      return;
+  // Check laptop keyboard for NO
+  if (Serial.available() > 0) {
+    char incomingChar = Serial.read();
+    if (incomingChar == 'N' || incomingChar == 'n') {
+      Serial.println("\n[OFFICER] Access DENIED via Laptop Keyboard.");
+      delay(2000);
+      resetToPinEntry();
     }
-    
-    Serial.print("\n>>> You selected Candidate ");
-    Serial.println(selectedCandidate + 1);
-    Serial.println(">>> Press the PHYSICAL PUSH BUTTON to confirm and cast your vote!");
-    currentState = STATE_CONFIRM_VOTE;
   }
 }
 
-void handleConfirmVote() {
-  static unsigned long lastDebounceTime = 0;
-  unsigned long debounceDelay = 200; 
+void handleVoting() {
+  char key = keypad.getKey();
   
-  int reading = digitalRead(confirmButtonPin);
-  
-  if (reading == HIGH) { 
-    if ((millis() - lastDebounceTime) > debounceDelay) {
+  if (key) {
+    int candidateIdx = -1;
+    
+    if (key == '1') candidateIdx = 0;
+    else if (key == '2') candidateIdx = 1;
+    else if (key == '3') candidateIdx = 2;
+    
+    if (candidateIdx != -1) {
+      voteCounts[candidateIdx]++;
+      EEPROM.put(VOTE_START_ADDR + (candidateIdx * sizeof(int)), voteCounts[candidateIdx]); 
       
-      // Save vote to permanent EEPROM
-      voteCounts[selectedCandidate]++;
-      EEPROM.put(VOTE_START_ADDR + (selectedCandidate * sizeof(int)), voteCounts[selectedCandidate]); 
-      
-      // Mark user as voted permanently
       EEPROM.write(FLAG_START_ADDR + currentVoterIndex, 1);
       
       Serial.println("\n*** VOTE CAST SUCCESSFULLY ***");
       Serial.println("Thank You.");
       
-      lastDebounceTime = millis();
       delay(2000);
       resetToPinEntry();
+    } else {
+      Serial.println("Invalid Selection! Press 1, 2, or 3 on the keypad.");
     }
   }
 }
@@ -216,7 +209,6 @@ void handleAdmin() {
     } else if (key == '*') {
       Serial.println("\nResetting all data...");
       
-      // Wipe data from EEPROM
       for(int i=0; i<NUM_CANDIDATES; i++) {
         voteCounts[i] = 0;
         EEPROM.put(VOTE_START_ADDR + (i * sizeof(int)), 0);
