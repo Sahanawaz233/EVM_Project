@@ -6,8 +6,8 @@
 // CONFIGURATION
 // ==========================================
 
-#define NUM_CANDIDATES 4
-String candidateNames[NUM_CANDIDATES] = {"BJP", "CONGRESS", "AAP", "TMC"};
+#define NUM_CANDIDATES 5
+String candidateNames[NUM_CANDIDATES] = {"BJP", "CONGRESS", "AAP", "TMC", "NOTA"};
 
 // --- Officer Control Button ---
 // Connect this button to Pin 10. This is the Officer's "YES" button.
@@ -36,7 +36,10 @@ String officerPIN = "0000";
 // Close Election PIN (To stop the election early)
 String closePIN = "ABCD";
 
-// Admin PIN (To check the final results at the end of the day or wipe data)
+// Officer Reject PIN
+String rejectPIN = "CCCC";
+
+// Admin PIN (To check the final results at the end of the day)
 String adminPIN = "A000A";
 
 const int VOTE_START_ADDR = 0; 
@@ -46,8 +49,8 @@ const int FLAG_START_ADDR = 100;
 const int MAGIC_ADDR = 200;
 const byte MAGIC_VAL = 0xA5; 
 
-int voteCounts[NUM_CANDIDATES] = {0, 0, 0, 0};
-enum State { STATE_INIT_LOCK, STATE_ENTER_PIN, STATE_OFFICER_AUTH, STATE_VOTING, STATE_ADMIN, STATE_FRAUD_LOCKOUT, STATE_ELECTION_CLOSED };
+int voteCounts[NUM_CANDIDATES] = {0, 0, 0, 0, 0};
+enum State { STATE_INIT_LOCK, STATE_ENTER_PIN, STATE_OFFICER_AUTH, STATE_VOTING, STATE_FRAUD_LOCKOUT, STATE_ELECTION_CLOSED, STATE_WIPE_CONFIRM };
 State currentState = STATE_INIT_LOCK;
 String inputPIN = "";
 int currentVoterIndex = -1;
@@ -56,12 +59,12 @@ void setup() {
   Serial.begin(9600);
   pinMode(officerButtonPin, INPUT); 
   
-  Serial.println("\n\n===========================");
-  Serial.println("System Booting..");
+  Serial.println(F("\n\n==========================="));
+  Serial.println(F("System Booting.."));
 
   // EEPROM AUTO-FORMAT
   if(EEPROM.read(MAGIC_ADDR) != MAGIC_VAL) {
-    Serial.println("Performing first-time setup and formatting memory...");
+    Serial.println(F("Performing first-time setup and formatting memory..."));
     for(int i=0; i<NUM_CANDIDATES; i++) {
       EEPROM.put(VOTE_START_ADDR + (i * sizeof(int)), 0);
     }
@@ -69,7 +72,7 @@ void setup() {
       EEPROM.write(FLAG_START_ADDR + i, 0);
     }
     EEPROM.write(MAGIC_ADDR, MAGIC_VAL);
-    Serial.println("Memory format complete!");
+    Serial.println(F("Memory format complete!"));
   }
   
   for(int i=0; i<NUM_CANDIDATES; i++) {
@@ -96,47 +99,47 @@ void loop() {
     handleOfficerAuth();
   } else if (currentState == STATE_VOTING) {
     handleVoting();
-  } else if (currentState == STATE_ADMIN) {
-    handleAdmin();
   } else if (currentState == STATE_FRAUD_LOCKOUT) {
     handleFraudLockout();
   } else if (currentState == STATE_ELECTION_CLOSED) {
-    // Election closed, do nothing, just wait.
-    delay(100);
+    handleElectionClosed();
+  } else if (currentState == STATE_WIPE_CONFIRM) {
+    handleWipeConfirm();
   }
 }
 
 void resetToInitLock() {
   currentState = STATE_INIT_LOCK;
   inputPIN = "";
-  Serial.println("\n---------------------------");
-  Serial.println("SYSTEM LOCKED.");
-  Serial.println("Officer, please enter Initialization PIN (0000) to allow the next voter:");
+  Serial.println(F("\n---------------------------"));
+  Serial.println(F("SYSTEM LOCKED."));
+  Serial.println(F("Officer, please enter Initialization PIN (0000) to allow the next voter:"));
 }
 
 void resetToPinEntry() {
   currentState = STATE_ENTER_PIN;
   inputPIN = "";
   currentVoterIndex = -1;
-  Serial.println("\n---------------------------");
-  Serial.println("Machine Unlocked. Waiting for Voter... Enter PIN on the Keypad:");
+  Serial.println(F("\n---------------------------"));
+  Serial.println(F("Machine Unlocked. Waiting for Voter... Enter PIN on the Keypad:"));
 }
 
 void resetToFraudLockout() {
   currentState = STATE_FRAUD_LOCKOUT;
   inputPIN = "";
-  Serial.println("\n---------------------------");
-  Serial.println("!!! SECURITY ALERT !!!");
-  Serial.println("Multiple Vote Attempt Detected!");
-  Serial.println("System Locked. Officer must enter Initialization PIN (0000) to resume:");
+  Serial.println(F("\n---------------------------"));
+  Serial.println(F("!!! SECURITY ALERT !!!"));
+  Serial.println(F("Multiple Vote Attempt Detected!"));
+  Serial.println(F("System Locked. Officer must enter Initialization PIN (0000) to resume:"));
 }
 
 void closeElection() {
   currentState = STATE_ELECTION_CLOSED;
-  Serial.println("\n==================================");
-  Serial.println("ELECTION OFFICIALLY CLOSED");
-  Serial.println("No further voting is permitted.");
-  Serial.println("==================================");
+  inputPIN = "";
+  Serial.println(F("\n=================================="));
+  Serial.println(F("ELECTION OFFICIALLY CLOSED"));
+  Serial.println(F("No further voting is permitted."));
+  Serial.println(F("=================================="));
   displayResults();
 }
 
@@ -146,25 +149,25 @@ void handleInitLock() {
   if (key) {
     if (key == '*' || key == '#') {
        inputPIN = "";
-       Serial.println("\nPIN Cleared. Try again.");
+       Serial.println(F("\nPIN Cleared. Try again."));
        return;
     }
     
     inputPIN += key;
-    Serial.print("*"); // Hide PIN for security
+    Serial.print(F("*")); // Hide PIN for security
     
     if(inputPIN.length() == 4) {
       Serial.println();
       delay(500);
       
       if(inputPIN == officerPIN) {
-        Serial.println("ELECTION UNLOCKED.");
+        Serial.println(F("ELECTION UNLOCKED."));
         delay(1000);
         resetToPinEntry();
       } else if (inputPIN == closePIN) {
         closeElection();
       } else {
-        Serial.println("ACCESS DENIED. Incorrect PIN.");
+        Serial.println(F("ACCESS DENIED. Incorrect PIN."));
       }
       inputPIN = ""; // Strictly clear buffer regardless
     }
@@ -177,25 +180,25 @@ void handleFraudLockout() {
   if (key) {
     if (key == '*' || key == '#') {
        inputPIN = "";
-       Serial.println("\nPIN Cleared. Try again.");
+       Serial.println(F("\nPIN Cleared. Try again."));
        return;
     }
     
     inputPIN += key;
-    Serial.print("*"); // Hide PIN for security
+    Serial.print(F("*")); // Hide PIN for security
     
     if(inputPIN.length() == 4) {
       Serial.println();
       delay(500);
       
       if(inputPIN == officerPIN) {
-        Serial.println("System Unlocked! Resuming Election...");
+        Serial.println(F("System Unlocked! Resuming Election..."));
         delay(1000);
         resetToPinEntry();
       } else if (inputPIN == closePIN) {
         closeElection();
       } else {
-        Serial.println("ACCESS DENIED. Incorrect PIN.");
+        Serial.println(F("ACCESS DENIED. Incorrect PIN."));
       }
       inputPIN = ""; // Strictly clear buffer regardless
     }
@@ -208,7 +211,7 @@ void handlePinEntry() {
   if (key) {
     if (key == '*' || key == '#') {
        inputPIN = "";
-       Serial.println("\nPIN Cleared. Try again.");
+       Serial.println(F("\nPIN Cleared. Try again."));
        return;
     }
     
@@ -216,10 +219,9 @@ void handlePinEntry() {
     Serial.print(key); 
     
     if(inputPIN == adminPIN) {
-      currentState = STATE_ADMIN;
-      Serial.println("\n\n*** ADMIN MODE ***");
+      Serial.println(F("\n\n*** ADMIN MODE ***"));
       delay(1000);
-      displayResults();
+      closeElection();
       inputPIN = "";
       return;
     }
@@ -243,21 +245,23 @@ void handlePinEntry() {
       }
       
       if(voterIdx == -1) {
-        Serial.println("Invalid Voter PIN!");
+        Serial.println(F("Invalid Voter PIN!"));
         delay(2000);
         resetToPinEntry();
       } else {
         byte hasVoted = EEPROM.read(FLAG_START_ADDR + voterIdx);
         if(hasVoted == 1) {
-          Serial.println("Error: Already Voted!");
+          Serial.println(F("Error: Already Voted!"));
           delay(1000);
           resetToFraudLockout(); // Trigger the security lockdown!
         } else {
           currentVoterIndex = voterIdx;
           currentState = STATE_OFFICER_AUTH;
-          Serial.println("\n[OFFICER CHECK] Voter Authenticated.");
-          Serial.println("-> To AUTHORIZE: Press the Physical Push Button (YES).");
-          Serial.println("-> To REJECT: Type 'N' on this laptop keyboard and press Enter (NO).");
+          inputPIN = ""; // clear buffer for the CCCC input
+          Serial.println(F("\n[OFFICER CHECK] Voter Authenticated."));
+          Serial.println(F("Physical verification is going on..."));
+          Serial.println(F("-> Press Physical Push Button for YES"));
+          Serial.println(F("-> Type 'CCCC' on Keypad for NO"));
         }
       }
       inputPIN = ""; // Strictly clear buffer
@@ -268,23 +272,37 @@ void handlePinEntry() {
 void handleOfficerAuth() {
   // Check physical push button for YES
   if (digitalRead(officerButtonPin) == HIGH) {
-    Serial.println("\n[OFFICER] Access GRANTED via Push Button.");
+    Serial.println(F("\n[OFFICER] Access GRANTED via Push Button."));
     currentState = STATE_VOTING;
-    Serial.println("\n--- BALLOT UNLOCKED ---");
+    Serial.println(F("\n--- BALLOT UNLOCKED ---"));
     for(int i=0; i<NUM_CANDIDATES; i++) {
-      Serial.print("Press "); Serial.print(i+1); Serial.print(" for "); Serial.println(candidateNames[i]);
+      Serial.print(F("Press ")); Serial.print(i+1); Serial.print(F(" for ")); Serial.println(candidateNames[i]);
     }
     delay(500); // Debounce
     return;
   }
   
-  // Check laptop keyboard for NO
-  if (Serial.available() > 0) {
-    char incomingChar = Serial.read();
-    if (incomingChar == 'N' || incomingChar == 'n') {
-      Serial.println("\n[OFFICER] Access DENIED via Laptop Keyboard.");
-      delay(2000);
-      resetToInitLock(); // Send back to lock screen since this voter was rejected
+  // Check Keypad for NO (CCCC)
+  char key = keypad.getKey();
+  if (key) {
+    if (key == '*' || key == '#') {
+       inputPIN = "";
+       return;
+    }
+    
+    inputPIN += key;
+    Serial.print(key);
+    
+    if(inputPIN.length() == 4) {
+      Serial.println();
+      
+      if(inputPIN == rejectPIN) {
+        Serial.println(F("\n[OFFICER] Access DENIED via Keypad."));
+        delay(2000);
+        resetToInitLock(); 
+      } else {
+        inputPIN = ""; // Ignore incorrect pins in this state
+      }
     }
   }
 }
@@ -299,6 +317,7 @@ void handleVoting() {
     else if (key == '2') candidateIdx = 1;
     else if (key == '3') candidateIdx = 2;
     else if (key == '4') candidateIdx = 3;
+    else if (key == '5') candidateIdx = 4;
     
     if (candidateIdx != -1) {
       voteCounts[candidateIdx]++;
@@ -306,36 +325,47 @@ void handleVoting() {
       
       EEPROM.write(FLAG_START_ADDR + currentVoterIndex, 1);
       
-      Serial.println("\n*** VOTE CAST SUCCESSFULLY ***");
-      Serial.print("You voted for: "); Serial.println(candidateNames[candidateIdx]);
-      Serial.println("Thank You.");
+      Serial.println(F("\n*** VOTE CAST SUCCESSFULLY ***"));
+      Serial.print(F("You voted for: ")); Serial.println(candidateNames[candidateIdx]);
+      Serial.println(F("Thank You."));
       
       delay(3000);
       // REQUIRE OFFICER TO UNLOCK THE MACHINE FOR THE NEXT VOTER
       resetToInitLock(); 
     } else {
-      Serial.println("Invalid Selection! Press 1, 2, 3, or 4 on the keypad.");
+      Serial.println(F("Invalid Selection! Press 1, 2, 3, 4, or 5 on the keypad."));
     }
   }
 }
 
 void displayResults() {
-  Serial.println("\n--- ELECTION RESULTS ---");
+  Serial.println(F("\n--- ELECTION RESULTS ---"));
   for(int i=0; i<NUM_CANDIDATES; i++) {
-    Serial.print(candidateNames[i]); Serial.print(": "); Serial.println(voteCounts[i]);
+    Serial.print(candidateNames[i]); Serial.print(F(": ")); Serial.println(voteCounts[i]);
   }
-  Serial.println("------------------------");
-  Serial.println("Press '#' to exit Admin Mode.");
-  Serial.println("Press '*' to RESET all votes to zero.");
+  Serial.println(F("------------------------"));
+  Serial.println(F("Press '#' to do nothing."));
+  Serial.println(F("Press '*' to ERASE EVERYTHING and restart election."));
 }
 
-void handleAdmin() {
+void handleElectionClosed() {
   char key = keypad.getKey();
   if(key) {
     if(key == '#') {
-      resetToInitLock();
+      Serial.println(F("Election is closed. Waiting..."));
     } else if (key == '*') {
-      Serial.println("\nResetting all data...");
+      currentState = STATE_WIPE_CONFIRM;
+      Serial.println(F("\n[WARNING] Are you sure you want to completely erase all votes?"));
+      Serial.println(F("Press 'A' on Keypad to Confirm, or any other key to Cancel."));
+    }
+  }
+}
+
+void handleWipeConfirm() {
+  char key = keypad.getKey();
+  if(key) {
+    if(key == 'A') {
+      Serial.println(F("\nErasing all memory..."));
       
       for(int i=0; i<NUM_CANDIDATES; i++) {
         voteCounts[i] = 0;
@@ -346,8 +376,13 @@ void handleAdmin() {
       }
       
       delay(1000);
-      Serial.println("Data Wiped!");
+      Serial.println(F("Memory Wiped! Restarting system."));
+      delay(1000);
+      resetToInitLock();
+    } else {
+      Serial.println(F("\nWipe Cancelled. Returning to results."));
       displayResults();
+      currentState = STATE_ELECTION_CLOSED;
     }
   }
 }
